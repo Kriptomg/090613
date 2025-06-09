@@ -35,10 +35,10 @@ TIME_FRAMES = [
 ]
 COINGECKO_IDS = {
     "BTC": "bitcoin",
-    "ETH": "Ethereum",
+    "ETH": "ethereum",
     "USDT": "tether",
-    "SOL": "solana",
-    "XRP": "ripple",
+    "PEPE": "pepe"
+    "SHIB": "shiba",
     "DOGE": "dogecoin",
     # İstediğin kadar coin ekleyebilirsin
 }
@@ -1060,22 +1060,35 @@ def plot_technical_indicators(ohlcv):
     return buf
 
 
-def backtest_strategy(ohlcv_data, lookback=50):
-    """Basit bir backtest fonksiyonu"""
-    signals = []
+def backtest_strategy(ohlcv_data, lookback=50, rsi_period=14, macd_fast=12, macd_slow=26, macd_signal=9, take_profit=0.01, stop_loss=0.01, hold_bars=5):
     closes = ohlcv_data['close']
-    for i in range(lookback, len(closes)):
+    total_signals = 0
+    total_success = 0
+    for i in range(lookback, len(closes) - hold_bars):
         current_slice = {
             'close': closes[i - lookback:i],
             'high': ohlcv_data['high'][i - lookback:i],
             'low': ohlcv_data['low'][i - lookback:i],
             'volume': ohlcv_data['volume'][i - lookback:i]
         }
-        # Örnek strateji: RSI < 30 ve MACD > 0 ise AL
-        rsi_val = rsi(current_slice['close'], 14)[-1]
-        macd_line = macd(current_slice['close'], 12, 26, 9)[0][-1]
-        signals.append(1 if rsi_val < 30 and macd_line > 0 else 0)
-    return signals
+        rsi_val = rsi(current_slice['close'], rsi_period)[-1]
+        macd_line = macd(current_slice['close'], macd_fast, macd_slow, macd_signal)[0][-1]
+        if rsi_val < 30 and macd_line > 0:
+            entry = closes[i]
+            # TP/SL backtest
+            target = entry * (1 + take_profit)
+            stop = entry * (1 - stop_loss)
+            for j in range(1, hold_bars + 1):
+                bar_high = ohlcv_data['high'][i + j]
+                bar_low = ohlcv_data['low'][i + j]
+                if bar_high >= target:
+                    total_success += 1
+                    break
+                elif bar_low <= stop:
+                    break
+            total_signals += 1
+    success_rate = (total_success / total_signals * 100) if total_signals > 0 else 0
+    return success_rate, total_signals
 
 
 async def main_loop():
@@ -1192,9 +1205,10 @@ async def main_loop():
             files={"photo": chart}
         )
 
+# ... (önceki kodun burada)
+
         # 2) Backtest sonuçlarını ve dinamik yorumu ekle
-        signals = backtest_strategy(ohlcv_1h)
-        win_rate = sum(signals) / len(signals) * 100 if signals else 0
+        win_rate, total_signals = backtest_strategy(ohlcv_1h)
         dynamic_comment = generate_dynamic_comment(rsi_val, macd_val, obv_1h_pct)
 
         msg = (
@@ -1205,7 +1219,7 @@ async def main_loop():
             + "\n─────\n"
             + nihai
             + f"\n💡 Uzman Yorumu: {dynamic_comment}"
-            + f"\n🔍 Backtest Sonucu (Son 50 Sinyal): %{win_rate:.1f} Başarı"
+            + f"\n🔍 Backtest Sonucu (Son {total_signals} Sinyal): %{win_rate:.1f} Başarı"
             + whale_alert_raporu
             + "\n\n" + btc_piyasa_analiz_turkce()
         )
@@ -1230,5 +1244,6 @@ async def main_loop():
 
         await asyncio.sleep(300)
 
+# Fonksiyon ve döngü dışında fazladan indent yok!
 if __name__ == "__main__":
     asyncio.run(main_loop())
